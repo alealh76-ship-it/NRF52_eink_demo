@@ -8,6 +8,15 @@ sketches produce the same screen; what differs is how they get there.
 |---|---|---|
 | [`EpaperHelloWorld`](EpaperHelloWorld/EpaperHelloWorld.ino) | nRF52840 SuperMini | Full 10 kB frame in RAM, one pass |
 | [`EpaperHelloWorld_ProMini`](EpaperHelloWorld_ProMini/EpaperHelloWorld_ProMini.ino) | Arduino Pro Mini (ATmega328P) | 2 kB SRAM, so 20 banded passes |
+| [`EpaperWiringCheck`](EpaperWiringCheck/EpaperWiringCheck.ino) | either | Run this when nothing happens — see below |
+
+## When nothing happens
+
+`EpaperWiringCheck` walks five stages and reports each before the next can
+mask it: LED blink (is the sketch running?), serial banner (is the link real?),
+BUSY idle level (is the panel powered and BUSY connected?), reset response
+(does the panel react to RES?), and a solid red fill with no fonts involved.
+Read the first stage that misbehaves and ignore everything after it.
 
 Both need **GxEPD2 ≥ 1.6.6** (Library Manager) — that release added this
 panel — plus Adafruit GFX, which comes with it.
@@ -43,9 +52,13 @@ drives and needs no help: 3.3 V clears a 5 V part's 3.0 V input threshold.
 The module also has SB1/SB2 solder bridges selecting 3-wire vs 4-wire SPI.
 GxEPD2 needs 4-wire (the D/C pin), which is how the boards ship.
 
-**Wire by the labels printed on your module.** The one mistake that kills the
-board is swapping GND and VCC, and their order differs between the 2.54 mm
-header and the 1.25 mm wafer connector.
+**Pin order** is the same on both the 2.54 mm header (P1) and the 1.25 mm wafer
+connector (J2), per WeAct's schematic:
+
+`1 BUSY · 2 RES · 3 D/C · 4 CS · 5 SCL · 6 SDA · 7 GND · 8 VCC`
+
+Still confirm against your module's silkscreen before powering it — swapping
+GND and VCC is the one mistake that kills the board.
 
 ## nRF52840 SuperMini
 

@@ -40,10 +40,11 @@
  * GxEPD2 needs 4-wire (the D/C pin), which is how the boards ship. Only worry
  * about this if someone has been at yours with an iron.
  *
- * Wiring — match the labels printed on YOUR module, not the numbering here.
- * The one mistake that kills the board is swapping GND and VCC, and their
- * order differs between the module's 2.54 mm header and its 1.25 mm wafer
- * connector, so read the silkscreen for those two.
+ * Wiring. WeAct's schematic gives both the 2.54 mm header (P1) and the 1.25 mm
+ * wafer connector (J2) the same order, pin 1 to pin 8:
+ *     1 BUSY   2 RES   3 D/C   4 CS   5 SCL   6 SDA   7 GND   8 VCC
+ * Still confirm against your own module's silkscreen before powering it:
+ * swapping GND and VCC is the one mistake that kills the board.
  *
  *     module pin | Pro Mini | note
  *     -----------+----------+----------------------------------------------
