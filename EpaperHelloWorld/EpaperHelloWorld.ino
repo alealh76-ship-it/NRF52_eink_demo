@@ -91,11 +91,20 @@
 #define EPD_MOSI  P0(11)
 #define EPD_MISO  P1(4)   // unused by the panel; SPI needs a pin, leave it open
 
+// Set to 0 to ignore the BUSY line entirely and use the datasheet's fixed
+// delays instead (GxEPD2 does this whenever the busy pin is -1). Slower and
+// less robust, but immune to a broken, floating or miswired BUSY connection --
+// which is worth knowing, because an unread BUSY line does not merely slow
+// things down: the library then believes each step finished instantly and
+// puts the panel to sleep part-way through its refresh, leaving a blank
+// screen. Flip this to 0 to find out whether BUSY is your problem.
+#define USE_BUSY_PIN 1
+
 // One page holding the whole screen: 200 x 200 px at 2 bits per pixel is
 // 10 kB, nothing to the nRF52840's 256 kB of RAM, so the drawing loop below
 // runs exactly one pass.
 GxEPD2_4C<GxEPD2_154c_GDEM0154F51H, GxEPD2_154c_GDEM0154F51H::HEIGHT> display(
-  GxEPD2_154c_GDEM0154F51H(EPD_CS, EPD_DC, EPD_RST, EPD_BUSY));
+  GxEPD2_154c_GDEM0154F51H(EPD_CS, EPD_DC, EPD_RST, USE_BUSY_PIN ? EPD_BUSY : -1));
 
 static const char HELLO[] = "Hello World";
 
@@ -190,9 +199,22 @@ void setup()
   Serial.println(F("refreshing; a four-colour full update takes ~25 s"));
   const unsigned long refreshStart = millis();
   drawHelloWorld();
+  const unsigned long elapsed = millis() - refreshStart;
   Serial.print(F("refresh done in "));
-  Serial.print(millis() - refreshStart);
+  Serial.print(elapsed);
   Serial.println(F(" ms"));
+#if USE_BUSY_PIN
+  if (elapsed < 10000)
+  {
+    // A four-colour refresh cannot finish this fast. If we get here, every
+    // _waitWhileBusy returned instantly, which means the BUSY line was never
+    // seen asserted -- so hibernate() below lands in the middle of the panel's
+    // refresh and aborts it. A blank screen with a fast "done" is this bug.
+    Serial.println(F("WARNING: too fast for a real refresh."));
+    Serial.println(F("BUSY is not being read: check the A3 wire, or set"));
+    Serial.println(F("USE_BUSY_PIN to 0 to fall back to fixed delays."));
+  }
+#endif
 
   // Park the panel in deep sleep. The image stays on screen with no power.
   display.hibernate();

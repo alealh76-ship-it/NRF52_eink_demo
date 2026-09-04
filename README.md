@@ -133,6 +133,33 @@ what you add inside the `do/while` cheap, and keep string literals in `F()`.
 Serial is at 9600 rather than 115200: at 8 MHz the baud divisor puts 115200
 about 3.5 % out, which is where a link starts dropping characters.
 
+## Reading GxEPD2's diagnostics
+
+Passing a baud rate to `display.init()` makes GxEPD2 print a timing line per
+step. **Those numbers are microseconds**, and comparing them against the
+driver's own measured figures is the fastest way to find a wiring fault:
+
+| step | healthy | meaning if far shorter |
+|---|---|---|
+| `_PowerOn` | ~157,485 µs | BUSY never seen asserted |
+| `_refresh` | ~21,428,295 µs | ditto — and the refresh gets aborted |
+| `_PowerOff` | ~81,338 µs | ditto |
+
+**An unread BUSY line does not just skip a wait — it blanks the screen.**
+`_waitWhileBusy()` returns immediately, the library believes a 21-second
+refresh finished in milliseconds, and the `hibernate()` that follows puts the
+panel into deep sleep part-way through painting. The result looks exactly like
+"the sketch does nothing", while the serial log claims success.
+
+Both sketches now catch this themselves: a refresh reported in under 10
+seconds prints a warning naming BUSY as the suspect.
+
+To test it, set `USE_BUSY_PIN` to `0` near the top of the sketch. GxEPD2 then
+ignores the pin and uses the datasheet's fixed delays instead (25 s for a full
+refresh), so the panel is left alone to finish. If the image appears, BUSY is
+your fault to fix; if it stays blank, BUSY is exonerated and the problem is on
+CS / D/C / SDA / SCL or the panel type.
+
 ## Refresh timing
 
 A four-colour full refresh takes **about 25 seconds**, flashing through its
