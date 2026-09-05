@@ -93,6 +93,34 @@ MISO goes nowhere (the panel never talks back), but the nRF52 SPI peripheral
 needs a pin assigned, so P1.04 is parked there and left unconnected. P0.09 and
 P0.10 are avoided throughout: they default to NFC antenna function.
 
+### Deep sleep (nRF52840 only)
+
+`EpaperHelloWorld` finishes by putting both halves to sleep: `display.hibernate()`
+sends the panel's deep-sleep command (`0x07` / `0xA5`), and then
+`SLEEP_MCU_AFTER_DRAW` puts the nRF52840 into **System OFF**, its deepest stop —
+single-digit microamps, RAM lost, waking restarts from `setup()`. The panel
+holds its image with no power, so an idle picture frame costs essentially
+nothing to keep displayed.
+
+Set `WAKE_PIN` to a pad (e.g. `P0(6)`) to wake on that pad being pulled to GND;
+leave it `-1` and RST or a power cycle is the only way back. Set
+`SLEEP_MCU_AFTER_DRAW` to `0` to keep the MCU awake and idling.
+
+Three things worth knowing:
+
+- **It refuses to sleep while USB is attached.** Entering System OFF with VBUS
+  present tends to wake the chip straight back up, which looks exactly like a
+  boot loop. The sketch checks `USBREGSTATUS` and stays awake on USB, so you
+  only get real sleep on battery — by design, not by accident.
+- **`display.end()` is deliberately not called.** It switches CS, DC and RST to
+  inputs, floating the sleeping panel's control lines. GPIO output levels are
+  latched through System OFF, so leaving them driven is simpler and safer.
+- **The LDO on the display module probably dominates your power budget**, not
+  the sleeping MCU or panel. Measure the whole board before optimising either.
+
+Waking the panel needs nothing special: the driver checks `_hibernating` at the
+top of `_InitDisplay()` and pulses RES for you, so the next draw just works.
+
 ## Arduino Pro Mini (ATmega328P)
 
 Tools → Board → **Arduino Pro or Pro Mini**, then Tools → Processor →

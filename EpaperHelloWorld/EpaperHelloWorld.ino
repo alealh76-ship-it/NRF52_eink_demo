@@ -100,6 +100,24 @@
 // screen. Flip this to 0 to find out whether BUSY is your problem.
 #define USE_BUSY_PIN 1
 
+// ---- MCU deep sleep --------------------------------------------------------
+// 1 -> after drawing, put the nRF52840 into System OFF: the deepest stop it
+//      has, drawing single-digit microamps. Everything except the reset and
+//      any configured DETECT pin is powered down, RAM is lost, and waking
+//      restarts the sketch from setup(). For a battery build this is the
+//      point of the whole exercise; the panel holds its image with no power,
+//      so an idle picture frame costs nothing to display.
+// 0 -> stay awake and idle in loop().
+//
+// Note what dominates the budget: the nRF52840 asleep and the panel
+// hibernating are both negligible next to the quiescent draw of the LDO on
+// the display module. Measure the whole board before optimising the MCU.
+#define SLEEP_MCU_AFTER_DRAW 1
+
+// Pad that wakes the board from System OFF when pulled to GND, or -1 for
+// none -- in which case RST or a power cycle is the only way back.
+#define WAKE_PIN (-1)   // e.g. P0(6) for the pad marked P0.06
+
 // One page holding the whole screen: 200 x 200 px at 2 bits per pixel is
 // 10 kB, nothing to the nRF52840's 256 kB of RAM, so the drawing loop below
 // runs exactly one pass.
@@ -174,6 +192,50 @@ static void drawHelloWorld()
   while (display.nextPage());
 }
 
+#if SLEEP_MCU_AFTER_DRAW
+static void mcuSystemOff()
+{
+  // Entering System OFF with USB plugged in tends to wake the chip straight
+  // back up, which presents as a boot loop -- the sketch redrawing every half
+  // minute for no visible reason. Stay awake on USB so development is not
+  // confusing, and sleep for real on battery.
+  if (NRF_POWER->USBREGSTATUS & POWER_USBREGSTATUS_VBUSDETECT_Msk)
+  {
+    Serial.println(F("USB attached: staying awake."));
+    Serial.println(F("Unplug and run from battery to reach System OFF."));
+    return;
+  }
+
+  Serial.println(F("entering System OFF"));
+  Serial.flush();
+  delay(50); // let the USB CDC buffer drain before the peripheral dies
+
+#if WAKE_PIN >= 0
+  // The core turns INPUT_PULLUP_SENSE into a DETECT configured for sense-low,
+  // which is what wakes the chip from System OFF when the pad is grounded.
+  pinMode(WAKE_PIN, INPUT_PULLUP_SENSE);
+#endif
+
+  // Deliberately NOT calling display.end() here. It switches CS, DC and RST to
+  // inputs, which would leave the sleeping panel's control lines floating.
+  // GPIO output levels are latched through System OFF, so leaving them driven
+  // is both simpler and safer.
+
+  // With the SoftDevice enabled, writing POWER->SYSTEMOFF directly is not
+  // permitted -- it has to be asked instead. This sketch never starts BLE, so
+  // today the second branch runs; add Bluefruit later and the first one keeps
+  // this correct rather than mysteriously failing to sleep.
+  uint8_t sd_enabled = 0;
+  sd_softdevice_is_enabled(&sd_enabled);
+  if (sd_enabled) sd_power_system_off();
+  else NRF_POWER->SYSTEMOFF = 1;
+
+  // Not reached on real hardware. With a debugger attached the chip enters an
+  // emulated System OFF and keeps executing, so park it rather than run on.
+  while (true) __WFE();
+}
+#endif
+
 void setup()
 {
   Serial.begin(115200);
@@ -219,10 +281,16 @@ void setup()
   // Park the panel in deep sleep. The image stays on screen with no power.
   display.hibernate();
   Serial.println(F("panel hibernating; image is retained"));
+
+#if SLEEP_MCU_AFTER_DRAW
+  // Panel asleep, so now stop the MCU too. This does not return.
+  mcuSystemOff();
+#endif
 }
 
 void loop()
 {
-  // Nothing to do. E-paper holds the last image without power, and this panel
-  // does not want another full refresh for a few minutes anyway.
+  // Only reached with SLEEP_MCU_AFTER_DRAW at 0, or while USB is attached.
+  // E-paper holds the last image without power, and this panel does not want
+  // another full refresh for a few minutes anyway.
 }
