@@ -161,6 +161,35 @@ what you add inside the `do/while` cheap, and keep string literals in `F()`.
 Serial is at 9600 rather than 115200: at 8 MHz the baud divisor puts 115200
 about 3.5 % out, which is where a link starts dropping characters.
 
+### Deep sleep (Pro Mini)
+
+Same idea as the nRF52840 version, different mechanism and a much bigger
+caveat. `SLEEP_MCU_AFTER_DRAW` puts the ATmega328P into `SLEEP_MODE_PWR_DOWN`
+after the panel hibernates — all clocks stopped, sub-microamp on the bare chip.
+`WAKE_PIN` must be D2 (INT0) or D3 (INT1), both free in this wiring, because
+waking from power-down needs a **low-level** interrupt: edge detection runs off
+the I/O clock, which is stopped. At `-1` nothing can wake it.
+
+**On a stock Pro Mini this saves you almost nothing measurable.** The board's
+power LED burns roughly a milliamp and the on-board regulator adds its own
+quiescent draw — together some thousands of times the sleeping MCU. To make the
+setting worth having, remove the power LED, and either remove the regulator or
+feed regulated power straight to VCC rather than RAW. Only then does the
+display module's own LDO become the next thing to argue with.
+
+Two details that matter more than the sleep call itself: clearing `ADEN`
+(the ADC keeps its analogue front end powered through power-down otherwise,
+costing far more than the core), and `sleep_bod_disable()`, which must sit
+between `sleep_enable()` and `sleep_cpu()` with interrupts off because the
+hardware only honours it for a few cycles. Calling `power_all_disable()` is
+*not* useful here — the PRR registers save current in active and idle modes,
+and power-down has already stopped every clock.
+
+**One behavioural difference from the nRF52 sketch:** an AVR resumes execution
+right after `sleep_cpu()`, whereas nRF52840 System OFF restarts the program
+from `setup()`. If you wire a wake pin, the Pro Mini continues into `loop()`
+rather than redrawing.
+
 ## Reading GxEPD2's diagnostics
 
 Passing a baud rate to `display.init()` makes GxEPD2 print a timing line per

@@ -105,6 +105,8 @@
 #include <GxEPD2_4C.h>
 #include <Fonts/FreeMonoBold9pt7b.h>
 #include <SPI.h>
+#include <avr/sleep.h>
+#include <avr/interrupt.h>
 
 // ---- pins (see the wiring table above) ------------------------------------
 #define EPD_BUSY  A3
@@ -122,6 +124,28 @@
 // puts the panel to sleep part-way through its refresh, leaving a blank
 // screen. Flip this to 0 to find out whether BUSY is your problem.
 #define USE_BUSY_PIN 1
+
+// ---- MCU deep sleep --------------------------------------------------------
+// 1 -> after drawing, put the ATmega328P into SLEEP_MODE_PWR_DOWN, its deepest
+//      stop: all clocks halted, sub-microamp on the bare chip.
+// 0 -> stay awake and idle in loop().
+//
+// READ THIS BEFORE EXPECTING A LOW NUMBER. On a stock Pro Mini the chip is not
+// what drains your battery. The board's power LED burns roughly a milliamp,
+// and the on-board regulator adds its own quiescent draw -- together some
+// thousands of times more than the sleeping ATmega328P. Sleeping the MCU on an
+// unmodified board buys you almost nothing measurable. To make this setting
+// worth having: remove the power LED, and either remove the regulator or feed
+// regulated power straight to VCC instead of RAW. Then the display module's
+// own LDO becomes the next thing to argue with.
+#define SLEEP_MCU_AFTER_DRAW 1
+
+// Pin that wakes the board, or -1 for none (then only RESET or a power cycle
+// brings it back, which is the closest match to the nRF52 sketch's behaviour).
+// Must be D2 (INT0) or D3 (INT1): waking from power-down needs a LOW-LEVEL
+// interrupt, because edge detection runs off the I/O clock and that clock is
+// stopped. Both pins are free in this wiring.
+#define WAKE_PIN (-1)   // e.g. 2
 
 // ---- paged rendering ------------------------------------------------------
 // Rows per pass. 10 rows -> 500 bytes of buffer, 20 passes over the screen.
@@ -209,6 +233,58 @@ static void drawHelloWorld()
   while (display.nextPage());
 }
 
+#if SLEEP_MCU_AFTER_DRAW
+
+#if WAKE_PIN >= 0
+static void wakeISR()
+{
+  // Detach immediately: the interrupt is level-triggered, so it would fire
+  // continuously for as long as the pin is held low.
+  detachInterrupt(digitalPinToInterrupt(WAKE_PIN));
+}
+#endif
+
+static void mcuPowerDown()
+{
+  Serial.println(F("entering power-down"));
+  Serial.flush();   // the USART stops the moment the clocks do
+  delay(20);
+
+#if WAKE_PIN >= 0
+  pinMode(WAKE_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(WAKE_PIN), wakeISR, LOW);
+#endif
+
+  // The ADC keeps its analogue front end powered even in power-down unless
+  // ADEN is cleared, and that alone is worth a few hundred microamps -- far
+  // more than the sleeping core. Note there is no point calling
+  // power_all_disable() here: the PRR registers save current in active and
+  // idle modes, but power-down has already stopped every clock.
+  ADCSRA &= ~_BV(ADEN);
+
+  // Control pins are left driven on purpose, exactly as in the nRF52 sketch:
+  // pin states are retained through power-down, so the sleeping panel's CS, DC
+  // and RES stay held rather than floating. Do not call display.end() here.
+
+  set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+  cli();
+  sleep_enable();
+  // Brown-out detection costs ~20 uA and is pointless while asleep. The
+  // hardware only honours this within a few cycles of sleep_cpu(), so it has
+  // to sit here, between the disable and the sleep, with interrupts off.
+  sleep_bod_disable();
+  sei();
+  sleep_cpu();
+
+  // ---- Execution resumes HERE on wake, NOT at setup(). This is the one real
+  // difference from the nRF52 sketch, where System OFF restarts the program.
+  // With WAKE_PIN at -1 nothing can wake it, so control never gets this far.
+  sleep_disable();
+  ADCSRA |= _BV(ADEN);
+  Serial.println(F("woken"));
+}
+#endif
+
 void setup()
 {
   // 9600 rather than something brisker: at 8 MHz the ATmega328P's baud
@@ -251,10 +327,16 @@ void setup()
   // Park the panel in deep sleep. The image stays on screen with no power.
   display.hibernate();
   Serial.println(F("panel hibernating; image is retained"));
+
+#if SLEEP_MCU_AFTER_DRAW
+  // Panel asleep, so stop the MCU too. With WAKE_PIN at -1 this never returns.
+  mcuPowerDown();
+#endif
 }
 
 void loop()
 {
-  // Nothing to do. E-paper holds the last image without power, and this panel
-  // does not want another full refresh for a few minutes anyway.
+  // Reached only with SLEEP_MCU_AFTER_DRAW at 0, or after a WAKE_PIN wake.
+  // E-paper holds the last image without power, and this panel does not want
+  // another full refresh for a few minutes anyway.
 }
