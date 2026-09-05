@@ -211,7 +211,7 @@ void setup()
     // seen asserted -- so hibernate() below lands in the middle of the panel's
     // refresh and aborts it. A blank screen with a fast "done" is this bug.
     Serial.println(F("WARNING: too fast for a real refresh."));
-    Serial.println(F("BUSY is not being read: check the A3 wire, or set"));
+    Serial.println(F("BUSY is not being read: check the P0.17 wire, or set"));
     Serial.println(F("USE_BUSY_PIN to 0 to fall back to fixed delays."));
   }
 #endif
